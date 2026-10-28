@@ -178,9 +178,9 @@ Notes:
 - **Failure handling**: transient errors retried with exponential backoff; permanent errors and exhausted retries become `failed`; quota exhaustion defers.
 - **Tracing**: `trace_parent` from the Kafka envelope header is propagated into provider call spans; webhook spans derive a trace from the request.
 
-## 7. Stateless Kubernetes Operational Model
+## Stateless Container Operational Model
 
-- **Stateless pods** (`replicas >= 1`): no on-disk state; all durable state lives in PostgreSQL and Kafka offsets.
+- **Stateless replicas** (`replicas >= 1`): no on-disk state; all durable state lives in PostgreSQL and Kafka offsets.
 - **Liveness (`/healthz`)**: event-loop responsiveness only; must not fail on Kafka/DB hiccups.
 - **Readiness (`/readyz`)**: PostgreSQL reachable AND Kafka consumer assigned; returns 503 once shutdown starts.
 - **Graceful shutdown (`SIGTERM`/`SIGINT`)**:

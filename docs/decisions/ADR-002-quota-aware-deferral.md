@@ -25,5 +25,5 @@ Resend's free plan caps sends at 100/day and 3,000/month. During growth spikes (
 ## Alternatives considered
 
 - **Drop events at the cap** — rejected: loses user notifications irrecoverably.
-- **Queue in memory without DB rows** — rejected: a pod restart would lose deferred work; stateless pods must persist deferral.
+- **Queue in memory without DB rows** — rejected: a replica restart would lose deferred work; stateless replicas must persist deferral.
 - **Suppress on any bounce** — rejected: soft bounces are transient (full mailbox, temporary greylisting) and must not permanently silence an address.

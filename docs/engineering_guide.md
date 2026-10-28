@@ -27,13 +27,13 @@
 | Testing | `bun:test` | language-skill | Only approved runner; parallel-safe, deterministic |
 | Mocking | `mock()` from `bun:test` | language-skill | Mock repos, Kafka consumer, Resend SDK, and Svix verifier at module boundaries |
 
-## Kubernetes Lifecycle & Probes
+## Container Lifecycle & Probes
 
 - **Statelessness**: pods own no persistent local state; durable state is PostgreSQL + Kafka offsets. Safe with `replicas > 1`.
 - **`GET /healthz` (liveness)**: returns `200` while the event loop is responsive. MUST NOT probe Kafka/PostgreSQL — a transient dependency hiccup must not trigger a pod restart.
 - **`GET /readyz` (readiness)**: returns `200` only when the PostgreSQL pool is usable AND the Kafka consumer has assigned partitions; returns `503` once shutdown has begun.
 - **`SIGTERM`/`SIGINT` graceful shutdown**:
-  1. Flip readiness to failing immediately (K8s stops routing).
+  1. Flip readiness to failing immediately (the orchestrator stops routing).
   2. Stop accepting new HTTP requests and pause Kafka fetch loops.
   3. Drain in-flight event handlers and HTTP requests (bounded, ~15–30 s).
   4. Commit Kafka offsets, close the consumer and DB pool, exit `0`.
@@ -82,7 +82,7 @@ All configuration is 12-factor environment variables, validated at startup with 
 | `KAFKA_BROKERS` | yes | Comma-separated broker list |
 | `KAFKA_CLIENT_ID` | no | Client id (default `notification_service`) |
 | `KAFKA_SASL_*` / `KAFKA_TLS` | no | Optional SASL/TLS for the Kafka client |
-| `RESEND_API_KEY` | yes | Resend API key (K8s secret) |
+| `RESEND_API_KEY` | yes | Resend API key (platform secret) |
 | `RESEND_WEBHOOK_SECRET` | yes | Svix signing secret for webhook verification |
 | `RESEND_FROM_ADDRESS` | yes | Verified from address for transactional emails |
 | `EMAIL_DAILY_LIMIT` | no (default 100) | Daily send cap (provider plan) |

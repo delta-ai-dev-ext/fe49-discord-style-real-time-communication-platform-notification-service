@@ -117,7 +117,7 @@
 
 ## US-009: Health and readiness probes
 
-**As a** Kubernetes cluster,
+**As a** container orchestrator,
 **I want to** know when the service is alive and ready to consume,
 **So that** traffic is only routed to healthy pods.
 

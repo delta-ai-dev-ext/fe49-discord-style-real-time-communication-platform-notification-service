@@ -26,18 +26,18 @@ entities:
   - path: docs/architecture.md
     quote: consuming friend-request and community-invite events from Kafka
 - id: cluster
-  label: Kubernetes cluster
+  label: Container cluster
   kind: annotation
   role: inbound
   row: 350
   evidence:
   - path: docs/user_stories.md
-    quote: As a** Kubernetes cluster,
+    quote: As a** container orchestrator,
 - id: svc
   name: notification_service
   label: notification_service
   kind: service
-  technology: kubernetes-pod
+  technology: container
   role: service
   row: 410
   evidence:
