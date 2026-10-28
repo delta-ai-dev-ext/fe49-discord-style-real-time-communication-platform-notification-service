@@ -1,0 +1,242 @@
+openapi: "3.0.3"
+info:
+  title: notification_service API
+  version: "1.0.0"
+  description: >
+    Consumes platform events (friend requests, community invitations) and sends
+    transactional emails through Resend with exactly-once effect. Receives Resend
+    delivery-status webhooks (Svix-signed) to track email delivery outcomes.
+servers:
+  - url: /v1
+
+paths:
+  /webhooks/resend:
+    post:
+      operationId: handleResendWebhook
+      summary: Receive Resend delivery-status webhook (Svix-signed)
+      description: >
+        Publicly routed webhook endpoint. Authenticated only by Svix signature
+        verification of the request headers against the shared webhook secret.
+        No session JWT is accepted. Processes `email.sent`, `email.delivered`,
+        `email.bounced`, and `email.complained` events. Idempotent by Svix
+        message id. Signatures that fail verification are rejected with 401
+        without reading into business logic.
+      tags: [webhooks]
+      security: [] # signature-based auth; bearer JWT not accepted here
+      parameters:
+        - $ref: '#/components/parameters/SvixId'
+        - $ref: '#/components/parameters/SvixTimestamp'
+        - $ref: '#/components/parameters/SvixSignature'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResendWebhookEvent'
+      responses:
+        "200":
+          description: Webhook accepted (processed or ignored as a duplicate/unknown event)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookReceipt'
+        "400":
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "422":
+          $ref: '#/components/responses/UnprocessableEntity'
+        "500":
+          $ref: '#/components/responses/InternalError'
+
+  /healthz:
+    get:
+      operationId: getLiveness
+      summary: Liveness probe
+      description: >
+        Lightweight check that the process event loop is responsive. Must not
+        fail on transient downstream dependency issues (Kafka, PostgreSQL).
+      tags: [health]
+      responses:
+        "200":
+          description: Process is alive
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+        "500":
+          $ref: '#/components/responses/InternalError'
+
+  /readyz:
+    get:
+      operationId: getReadiness
+      summary: Readiness probe
+      description: >
+        Verifies critical downstream dependencies: PostgreSQL connection pool is
+        usable and the Kafka consumer is assigned to its partitions. Returns 503
+        once graceful shutdown has started.
+      tags: [health]
+      responses:
+        "200":
+          description: Ready to receive traffic and consume events
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+        "503":
+          description: Not ready (dependencies unavailable or shutting down)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+        "500":
+          $ref: '#/components/responses/InternalError'
+
+components:
+  parameters:
+    SvixId:
+      name: svix-id
+      in: header
+      required: true
+      schema:
+        type: string
+      description: Svix message id header.
+    SvixTimestamp:
+      name: svix-timestamp
+      in: header
+      required: true
+      schema:
+        type: string
+      description: Svix timestamp header.
+    SvixSignature:
+      name: svix-signature
+      in: header
+      required: true
+      schema:
+        type: string
+      description: Svix signature header used to verify the raw request body.
+
+  securitySchemes:
+    # Reserved for future internal endpoints; this service's public surface is webhook-only.
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    ResendWebhookEvent:
+      type: object
+      required: [type, created_at, data]
+      properties:
+        type:
+          type: string
+          enum: [email.sent, email.delivered, email.bounced, email.complained]
+          description: Resend delivery-status event type.
+        created_at:
+          type: string
+          format: date-time
+          description: Provider-side event timestamp.
+        data:
+          $ref: '#/components/schemas/ResendWebhookEventData'
+
+    ResendWebhookEventData:
+      type: object
+      required: [email_id]
+      properties:
+        email_id:
+          type: string
+          description: Provider message id of the delivered email.
+        created_at:
+          type: string
+          format: date-time
+        to:
+          type: array
+          items:
+            type: string
+            format: email
+        from:
+          type: string
+        subject:
+          type: string
+        bounce:
+          type: object
+          description: Present only for `email.bounced` events.
+          properties:
+            type:
+              type: string
+              enum: [hard, soft]
+            diagnostic_code:
+              type: string
+
+    WebhookReceipt:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [processed, ignored]
+          description: >
+            `processed` when the event updated a delivery record or suppression;
+            `ignored` when the event referenced an unknown message id or was a
+            duplicate Svix message id.
+
+    HealthStatus:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok, unavailable]
+        checks:
+          type: object
+          properties:
+            database:
+              type: string
+              enum: [ok, unavailable]
+            kafka_consumer:
+              type: string
+              enum: [assigned, unassigned, disabled]
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: Stable machine-readable error code.
+              example: webhook_signature_invalid
+            message:
+              type: string
+              description: Human-readable, non-sensitive description.
+            details:
+              description: Optional structured context; never includes internals.
+
+  responses:
+    BadRequest:
+      description: Request body is malformed or unparseable
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unauthorized:
+      description: Signature verification failed or headers missing
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    UnprocessableEntity:
+      description: Semantically invalid payload (e.g. unknown event type)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    InternalError:
+      description: Unexpected server error (no internal details exposed)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'

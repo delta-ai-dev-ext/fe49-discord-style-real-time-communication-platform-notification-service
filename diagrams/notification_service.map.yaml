@@ -1,0 +1,193 @@
+schema_version: 2
+diagram_id: notification_service
+mode: service
+orientation: LR
+scope: 'notification_service service view: Kafka event consumption, Resend transactional
+  email sending, delivery-status webhook intake and PostgreSQL delivery tracking.'
+sources:
+- path: docs/architecture.md
+  sha256: ee5e38f7afe11cae63f8df59ca3c54370e53fe457ad666ebe2c1f30db829e34c
+- path: docs/decisions/ADR-001-exactly-once-email-delivery.md
+  sha256: e392401595c8d7107388b85df81d4d48417e65ef054f1f3841b1dc82469cd181
+- path: docs/decisions/ADR-002-quota-aware-deferral.md
+  sha256: e09da15f4a5bb6216323ab48aff6d9578318836a4fdd3d47b6bf6145eb5ecc18
+- path: docs/openapi_spec.yaml
+  sha256: 91566a0417173cc5b6982bd49a904ab413cf67f713763a96c2c82ed87220098a
+- path: docs/user_stories.md
+  sha256: 5069b22c0ae6a33d4f6de91cd39c97ff03d152ba6efb27c4045f2810760a18b2
+entities:
+- id: events
+  label: Platform events (Kafka)
+  kind: broker
+  technology: kafka
+  role: outbound
+  row: 70
+  evidence:
+  - path: docs/architecture.md
+    quote: consuming friend-request and community-invite events from Kafka
+- id: cluster
+  label: Kubernetes cluster
+  kind: annotation
+  role: inbound
+  row: 350
+  evidence:
+  - path: docs/user_stories.md
+    quote: As a** Kubernetes cluster,
+- id: svc
+  name: notification_service
+  label: notification_service
+  kind: service
+  technology: kubernetes-pod
+  role: service
+  row: 410
+  evidence:
+  - path: docs/architecture.md
+    quote: '`notification_service` turns platform events into transactional emails
+      and tracks their delivery outcomes'
+- id: db
+  label: notification_service PostgreSQL
+  kind: database
+  technology: postgresql
+  role: outbound
+  row: 330
+  evidence:
+  - path: docs/architecture.md
+    quote: Schema owned and defined here; no cross-service table sharing.
+- id: resend
+  label: Resend provider
+  kind: annotation
+  external: true
+  external_role: dependency
+  role: outbound
+  row: 500
+  evidence:
+  - path: docs/architecture.md
+    quote: sending through the transactional email provider (Resend)
+relationships:
+- id: r-cons-friend
+  source: events
+  target: svc
+  type: event
+  direction: forward
+  interaction:
+    channel: messaging
+    purpose: friend request email events
+    protocol: Kafka
+  messaging:
+    role: consumer
+    topic: identity_friend_events
+  evidence:
+  - path: docs/decisions/ADR-001-exactly-once-email-delivery.md
+    quote: '`notification_service` consumes `identity_friend_events` and `community_invite_events`
+      from Kafka.'
+- id: r-cons-invite
+  source: events
+  target: svc
+  type: event
+  direction: forward
+  interaction:
+    channel: messaging
+    purpose: community invitation email events
+    protocol: Kafka
+  messaging:
+    role: consumer
+    topic: community_invite_events
+  evidence:
+  - path: docs/decisions/ADR-001-exactly-once-email-delivery.md
+    quote: '`notification_service` consumes `identity_friend_events` and `community_invite_events`
+      from Kafka.'
+- id: r-cluster
+  source: cluster
+  target: svc
+  type: request
+  interaction:
+    channel: direct
+    purpose: liveness and readiness probes
+  evidence:
+  - path: docs/user_stories.md
+    quote: when `GET /healthz` is called, then it returns `200`
+- id: r-db
+  source: svc
+  target: db
+  type: ownership
+  evidence:
+  - path: docs/architecture.md
+    quote: Schema owned and defined here; no cross-service table sharing.
+- id: r-send
+  source: svc
+  target: resend
+  type: request
+  interaction:
+    channel: direct
+    purpose: transactional email send
+  evidence:
+  - path: docs/architecture.md
+    quote: send email API, authenticated by API key from configuration
+- id: r-webhook
+  source: resend
+  target: svc
+  type: request
+  interaction:
+    channel: callback
+    purpose: delivery status updates
+    protocol: webhook
+  evidence:
+  - path: docs/architecture.md
+    quote: one publicly routed, signature-verified webhook endpoint for provider status
+      updates
+view:
+  entities:
+  - events
+  - cluster
+  - svc
+  - db
+  - resend
+  groups: []
+  edges:
+  - id: e-cons
+    source: events
+    target: svc
+    relationships:
+    - r-cons-friend
+    - r-cons-invite
+    label: 'Consumers
+
+      notification_service:community_invite_events
+
+      notification_service:identity_friend_events'
+    flow: feedback
+  - id: e-cluster
+    source: cluster
+    target: svc
+    relationships:
+    - r-cluster
+    label: 'health probes
+
+      liveness and readiness'
+    flow: forward
+  - id: e-db
+    source: svc
+    target: db
+    relationships:
+    - r-db
+    label: SQL
+    flow: forward
+  - id: e-send
+    source: svc
+    target: resend
+    relationships:
+    - r-send
+    label: 'send email
+
+      idempotency key'
+    flow: forward
+  - id: e-webhook
+    source: resend
+    target: svc
+    relationships:
+    - r-webhook
+    label: 'webhook callback
+
+      Svix-signed status updates'
+    flow: feedback
+  omitted: []
