@@ -1,0 +1,7 @@
+[test]
+coverage = true
+coverageSkipTestFiles = true
+coverageThreshold = { line = 0.8, branch = 0.8, function = 0.8, statement = 0.8 }
+
+[bundle]
+entrypoints = ["src/index.ts"]
